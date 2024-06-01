@@ -1,0 +1,54 @@
+run:
+  timeout: 5m
+
+issues:
+  exclude-files:
+    - "_test.go"
+
+linters-settings:
+  goheader:
+    values:
+      regexp:
+        COPYRIGHT-HOLDER: Copyright © {{ MOD-YEAR-RANGE }} Michael Fero
+    template-path: .header
+
+linters:
+  enable:
+    - asciicheck
+    - bidichk
+    - decorder
+    - dogsled
+    - dupl
+    - errname
+    - errorlint
+    - exhaustive
+    - exportloopref
+    - forbidigo
+    - forcetypeassert
+    - gci
+    - goconst
+    - gocritic
+    - godot
+    - gofmt
+    - gofumpt
+    - goheader
+    - goimports
+    - goprintffuncname
+    - gosec
+    - grouper
+    - importas
+    - lll
+    - misspell
+    - nakedret
+    - nestif
+    - nilnil
+    - nolintlint
+    - prealloc
+    - predeclared
+    - revive
+    - stylecheck
+    - tenv
+    - thelper
+    - unconvert
+    - whitespace
+    - wrapcheck
