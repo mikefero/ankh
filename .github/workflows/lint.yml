@@ -6,7 +6,23 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '.github/workflows/**'
+      - '!.github/workflows/lint.yml'
+      - 'mk/**'
+      - '.gitignore'
+      - 'LICENSE'
+      - 'Makefile'
+      - 'README.md'
   pull_request:
+    paths-ignore:
+      - '.github/workflows/**'
+      - '!.github/workflows/lint.yml'
+      - 'mk/**'
+      - '.gitignore'
+      - 'LICENSE'
+      - 'Makefile'
+      - 'README.md'
 permissions:
   contents: read
   pull-requests: read

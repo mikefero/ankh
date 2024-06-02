@@ -1,5 +1,7 @@
 # Ankh
 
+[![codecov](https://codecov.io/github/mikefero/ankh/graph/badge.svg?token=7F8518RX0T)](https://codecov.io/github/mikefero/ankh)
+
 Ankh is a robust and flexible WebSocket client/server written in Go. It provides
 a set of interfaces and types to handle WebSocket connections, allowing you to
 build scalable real-time applications.
