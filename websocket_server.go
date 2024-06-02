@@ -28,24 +28,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// CloseConnection will terminate the connection with the client application.
-// This handle will be given during the OnConnectedHandler callback and is
-// guaranteed to be thread safe.
-type CloseConnection func()
-
-// SendMessage will send a binary message to the client application. This handle
-// will be given during the OnConnectedHandler callback and is guaranteed to be
-// thread safe.
-type SendMessage func(data []byte) error
-
-// ClientSession represents the client session for the WebSocket.
-type ClientSession struct {
-	// Close will close the connection with the client application.
-	Close CloseConnection
-	// Send will send a binary message to the client application.
-	Send SendMessage
-}
-
 // WebsocketServerEventHandler represents the callback handlers for the
 // WebSocket server.
 type WebSocketServerEventHandler interface {
@@ -59,7 +41,7 @@ type WebSocketServerEventHandler interface {
 	// OnConnectedHandler is a function callback for indicating that the client
 	// connection is completed while creating handles for closing connections and
 	// sending messages on the WebSocket.
-	OnConnectedHandler(clientKey any, clientSession ClientSession) error
+	OnConnectedHandler(clientKey any, session Session) error
 
 	// OnDisconnectionHandler is a function callback for WebSocket connections
 	// that is executed upon disconnection of a client.
@@ -263,12 +245,12 @@ func (s *WebSocketServer) handleConnection(ctx context.Context, w http.ResponseW
 		return writeMessage(conn, &mutex, websocket.PongMessage, data)
 	})
 
-	if err := handler.OnConnectedHandler(clientKey, ClientSession{
-		// Generate a close function for the client session
+	if err := handler.OnConnectedHandler(clientKey, Session{
+		// Generate a close function for the session
 		Close: func() {
 			closeConnection(conn, &mutex, clientKey, handler)
 		},
-		// Generate a send message function for the client session
+		// Generate a send message function for the session
 		Send: func(data []byte) error {
 			return writeMessage(conn, &mutex, websocket.BinaryMessage, data)
 		},

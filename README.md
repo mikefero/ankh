@@ -19,7 +19,7 @@ Features:
 
 - **Efficient Connection Management**: Ankh streamlines upgrading HTTP to
   WebSocket connections and their ongoing management.
-- **Thread-safe Client Interaction**: Provides thread-safe mechanisms to send
+- **Thread-safe Session Interaction**: Provides thread-safe mechanisms to send
   messages and close connections, ensuring safe concurrent access to interact
 	directly with connected clients.
 - **Customizable Event Handlers and Lifecycle Management**: Customize handlers
@@ -41,8 +41,8 @@ events:
 
 ```go
 type MyWebSocketServerHandler struct{
-	clientSessions map[any]ankh.ClientSession
-	mutex          sync.Mutex
+	sessions map[any]ankh.Session
+	mutex    sync.Mutex
 }
 
 func (h *MyWebSocketServerHandler) OnConnectionHandler(w http.ResponseWriter, r *http.Request) (any, error) {
@@ -50,14 +50,14 @@ func (h *MyWebSocketServerHandler) OnConnectionHandler(w http.ResponseWriter, r 
 	return "clientKey", nil
 }
 
-func (h *MyWebSocketServerHandler) OnConnectedHandler(clientKey any, clientSession ClientSession) error {
+func (h *MyWebSocketServerHandler) OnConnectedHandler(clientKey any, session Session) error {
 	// Handle post-connection setup
 	log.Printf("client connected: %v", clientKey)
 
-	// Store the client session in a thread-safe manner
+	// Store the session in a thread-safe manner
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
-	h.clientSessions[clientKey] = clientSession
+	h.sessions[clientKey] = session
 	return nil
 }
 
@@ -65,10 +65,10 @@ func (h *MyWebSocketServerHandler) OnDisconnectionHandler(clientKey any) {
 	// Handle disconnection cleanup
 	log.Printf("client disconnected: %v", clientKey)
 
-	// Remove the client session in a thread-safe manner
+	// Remove the session in a thread-safe manner
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
-	delete(h.clientSessions, clientKey)
+	delete(h.sessions, clientKey)
 }
 
 func (h *MyWebSocketServerHandler) OnDisconnectionErrorHandler(clientKey any, err error) {
@@ -155,38 +155,38 @@ import (
 )
 
 type MyWebSocketServerHandler struct{
-	clientSessions map[any]ankh.ClientSession
-	mutex          sync.Mutex
+	sessions map[any]ankh.Session
+	mutex    sync.Mutex
 }
 
 func (h *MyWebSocketServerHandler) OnConnectionHandler(w http.ResponseWriter, r *http.Request) (any, error) {
 	return "clientKey", nil
 }
 
-func (h *MyWebSocketServerHandler) OnConnectedHandler(clientKey any, clientSession ankh.ClientSession) error {
+func (h *MyWebSocketServerHandler) OnConnectedHandler(clientKey any, session ankh.Session) error {
 	log.Printf("client connected: %v", clientKey)
 
 	// Send a welcome message
-	err := clientSession.Send([]byte("Welcome to the Ankh WebSocket server!"))
+	err := session.Send([]byte("Welcome to the Ankh WebSocket server!"))
 	if err != nil {
 		log.Printf("failed to send welcome message: %v", err)
 		return err
 	}
 
-	// Store the client session in a thread-safe manner
+	// Store the session in a thread-safe manner
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
-	h.clientSessions[clientKey] = clientSession
+	h.sessions[clientKey] = session
 	return nil
 }
 
 func (h *MyWebSocketServerHandler) OnDisconnectionHandler(clientKey any) {
 	log.Printf("client disconnected: %v", clientKey)
 
-	// Remove the client session in a thread-safe manner
+	// Remove the session in a thread-safe manner
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
-	delete(h.clientSessions, clientKey)
+	delete(h.sessions, clientKey)
 }
 
 func (h *MyWebSocketServerHandler) OnDisconnectionErrorHandler(clientKey any, err error) {
@@ -240,15 +240,16 @@ func main() {
 }
 ```
 
-#### Handling Client Sessions
+#### Handling Sessions
 
-The ClientSession type provides thread-safe methods to interact with a connected
-WebSocket client. You can use it to send messages or close the connection.
+The Session type provides thread-safe methods to interact with a connected
+WebSocket client/server. You can use it to send messages or close the
+connection.
 
-- **Send a Binary Message**: To send a binary message to the client, use the
-  `Send` method.
-- **Close the Connection**: To close the client connection, use the `Close`
-  method.
+- **Send a Binary Message**: To send a binary message to the client/server, use
+  the `Send` method.
+- **Close the Connection**: To close the client/server connection, use the
+	`Close` method.
 
 ## License
 
