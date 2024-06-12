@@ -1,4 +1,7 @@
 name: Test
+env:
+  ANKH_TEST_WAIT_FOR: 500ms
+  ANKH_TEST_WAIT_FOR_CAPTURE: 100ms
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.sha }}
   cancel-in-progress: true

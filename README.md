@@ -13,7 +13,7 @@ build scalable real-time applications.
 To use Ankh, you'll need to have Go installed on your system. You can
 [download and install Go from the official website].
 
-### WebSocket Server
+### WebSocket Client/Server
 
 Features:
 
@@ -32,9 +32,157 @@ Features:
 
 #### Usage
 
-Here's an example of how to set up and run an Ankh WebSocket server.
+##### WebSocket Client
 
-#### 1. Define Your Event Handlers
+###### 1. Define Your Event Handlers
+
+Implement the `WebSocketClientEventHandler` interface to handle WebSocket
+events:
+
+```go
+type MyWebSocketClientHandler struct{}
+
+func (h *MyWebSocketClientHandler) OnConnectedHandler(resp *http.Response, session ankh.Session) error {
+    // Handle post-connection setup
+    fmt.Println("connected to server")
+    return nil
+}
+
+func (h *MyWebSocketClientHandler) OnDisconnectionHandler() {
+    // Handle disconnection cleanup
+    fmt.Println("disconnected from server")
+}
+
+func (h *MyWebSocketClientHandler) OnDisconnectionErrorHandler(err error) {
+    // Handle disconnection errors
+    fmt.Println("disconnection error:", err)
+}
+
+func (h *MyWebSocketClientHandler) OnPongHandler(appData string) {
+    // Handle pong messages
+    fmt.Println("pong received:", appData)
+}
+
+func (h *MyWebSocketClientHandler) OnReadMessageHandler(messageType int, data []byte) {
+    // Handle incoming messages
+    fmt.Println("message received:", string(data))
+}
+
+func (h *MyWebSocketClientHandler) OnReadMessageErrorHandler(err error) {
+    // Handle read message errors
+    fmt.Println("read message error:", err)
+}
+
+func (h *MyWebSocketClientHandler) OnReadMessagePanicHandler(err error) {
+    // Handle read message panic
+    fmt.Println("read message panic:", err)
+}
+```
+
+###### 2. Create and Configure the WebSocket Client
+
+Configure the client with the appropriate options:
+
+```go
+opts := ankh.WebSocketClientOpts{
+    Handler:          &MyWebSocketClientHandler{},
+    HandShakeTimeout: 10 * time.Second,
+    ServerURL:        url.URL{Scheme: "ws", Host: "localhost:3737", Path: "/path"},
+    TLSConfig:        nil, // Or provide a TLS configuration for secure connections
+}
+
+client, err := ankh.NewWebSocketClient(opts)
+if err != nil {
+    log.Fatalf("failed to create client: %v", err)
+}
+```
+
+###### 3. Run the Client
+
+Run the client within a context to manage its lifecycle:
+
+```go
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+
+if err := client.Run(ctx); err != nil {
+    log.Fatalf("client error: %v", err)
+}
+```
+
+###### Example
+
+Here's a complete example combining the above steps:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "net/http"
+    "net/url"
+    "time"
+
+    "github.com/mikefero/ankh"
+)
+
+type MyWebSocketClientHandler struct{}
+
+func (h *MyWebSocketClientHandler) OnConnectedHandler(resp *http.Response, session ankh.Session) error {
+    fmt.Println("connected to server")
+    return nil
+}
+
+func (h *MyWebSocketClientHandler) OnDisconnectionHandler() {
+    fmt.Println("disconnected from server")
+}
+
+func (h *MyWebSocketClientHandler) OnDisconnectionErrorHandler(err error) {
+    fmt.Println("disconnection error:", err)
+}
+
+func (h *MyWebSocketClientHandler) OnPongHandler(appData string) {
+    fmt.Println("pong received:", appData)
+}
+
+func (h *MyWebSocketClientHandler) OnReadMessageHandler(messageType int, data []byte) {
+    fmt.Println("message received:", string(data))
+}
+
+func (h *MyWebSocketClientHandler) OnReadMessageErrorHandler(err error) {
+    fmt.Println("read message error:", err)
+}
+
+func (h *MyWebSocketClientHandler) OnReadMessagePanicHandler(err error) {
+    fmt.Println("read message panic:", err)
+}
+
+func main() {
+    opts := ankh.WebSocketClientOpts{
+        Handler:          &MyWebSocketClientHandler{},
+        HandShakeTimeout: 10 * time.Second,
+        ServerURL:        url.URL{Scheme: "ws", Host: "localhost:3737", Path: "/path"},
+    }
+
+    client, err := ankh.NewWebSocketClient(opts)
+    if err != nil {
+        log.Fatalf("failed to create client: %v", err)
+    }
+
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    if err := client.Run(ctx); err != nil {
+        log.Fatalf("client error: %v", err)
+    }
+}
+```
+
+##### WebSocket Server
+
+###### 1. Define Your Event Handlers
 
 Implement the `WebSocketServerEventHandler` interface to handle WebSocket
 events:
@@ -76,16 +224,15 @@ func (h *MyWebSocketServerHandler) OnDisconnectionErrorHandler(clientKey any, er
 	log.Printf("disconnection error: %v, client: %v", err, clientKey)
 }
 
-func (h *MyWebSocketServerHandler) OnPingHandler(clientKey any, appData string) ([]byte, error) {
+func (h *MyWebSocketServerHandler) OnPingHandler(clientKey any, appData string) []byte {
 	// Handle ping messages
 	log.Printf("ping received from client: %v, data: %v", clientKey, appData)
-	return []byte("pong message or nil"), nil
+	return []byte("pong message or nil")
 }
 
-func (h *MyWebSocketServerHandler) OnReadMessageHandler(clientKey any, messageType int, data []byte) error {
+func (h *MyWebSocketServerHandler) OnReadMessageHandler(clientKey any, messageType int, data []byte) {
 	// Handle incoming messages
 	log.Printf("message received from client: %v, type: %v, data: %s", clientKey, messageType, string(data))
-	return nil
 }
 
 func (h *MyWebSocketServerHandler) OnReadMessageErrorHandler(clientKey any, err error) {
@@ -104,7 +251,7 @@ func (h *MyWebSocketServerHandler) OnWebSocketUpgraderErrorHandler(clientKey any
 }
 ```
 
-#### 2. Create and Configure the WebSocket Server
+###### 2. Create and Configure the WebSocket Server
 
 Configure the server with the appropriate options:
 
@@ -125,7 +272,7 @@ if err != nil {
 }
 ```
 
-#### 3. Run the Server
+###### 3. Run the Server
 
 Run the server within a context to manage its lifecycle:
 
@@ -138,7 +285,7 @@ if err := server.Run(ctx); err != nil {
 }
 ```
 
-#### Example
+###### Example
 
 Here's a complete example combining the above steps:
 
@@ -193,14 +340,13 @@ func (h *MyWebSocketServerHandler) OnDisconnectionErrorHandler(clientKey any, er
 	log.Printf("disconnection error: %v, client: %v", err, clientKey)
 }
 
-func (h *MyWebSocketServerHandler) OnPingHandler(clientKey any, appData string) ([]byte, error) {
+func (h *MyWebSocketServerHandler) OnPingHandler(clientKey any, appData string) []byte {
 	log.Printf("ping received from client: %v, data: %v", clientKey, appData)
-	return []byte("pong message or nil"), nil
+	return []byte("pong message or nil")
 }
 
-func (h *MyWebSocketServerHandler) OnReadMessageHandler(clientKey any, messageType int, data []byte) error {
+func (h *MyWebSocketServerHandler) OnReadMessageHandler(clientKey any, messageType int, data []byte) {
 	log.Printf("message received from client: %v, type: %v, data: %s", clientKey, messageType, string(data))
-	return nil
 }
 
 func (h *MyWebSocketServerHandler) OnReadMessageErrorHandler(clientKey any, err error) {
@@ -246,10 +392,12 @@ The Session type provides thread-safe methods to interact with a connected
 WebSocket client/server. You can use it to send messages or close the
 connection.
 
-- **Send a Binary Message**: To send a binary message to the client/server, use
-  the `Send` method.
 - **Close the Connection**: To close the client/server connection, use the
 	`Close` method.
+- **Send a Ping Message**: To send a ping message to the client/server, use the
+  `Ping` method.
+- **Send a Binary Message**: To send a binary message to the client/server, use
+  the `Send` method.
 
 ## License
 
@@ -258,9 +406,15 @@ This project is licensed under the Apache License, Version 2.0. See the
 
 ## Acknowledgements
 
-[Gorilla WebSocket] - A fast, well-tested, and widely used WebSocket library in
-Go.
+- [Gorilla WebSocket] - A fast, well-tested, and widely used WebSocket library
+  in Go.
+- [golangci-lint] - A fast Go linters runner for Go. It runs linters in
+  parallel, caching their results for much faster runs.
+- [mockio] - A mocking framework for Go that helps in creating and using mocks
+  for testing purposes.
 
 [download and install Go from the official website]: https://golang.org/dl/
 [LICENSE]: LICENSE
 [Gorilla WebSocket]: https://github.com/gorilla/websocket
+[golangci-lint]: https://github.com/golangci/golangci-lint
+[mockio]: https://github.com/ovechkin-dm/mockio/mock

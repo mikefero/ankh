@@ -20,10 +20,10 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -52,7 +52,7 @@ func generateTestCertificate(t *testing.T) *tls.Config {
 	template := x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject: pkix.Name{
-			Organization: []string{"fero"},
+			Organization: []string{"ankh"},
 		},
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().Add(30 * time.Minute),
@@ -111,20 +111,55 @@ func waitForServer(t *testing.T, address string, establishConnection bool) {
 	}
 }
 
-func waitForCapture[T any](captor matchers.ArgumentCaptor[T]) {
-	for i := 0; i < 100; i++ {
-		if len(captor.Values()) != 0 {
-			return
+func waitFor(t *testing.T) {
+	t.Helper()
+
+	defaultWaitFor := 100 * time.Millisecond
+	waitForStr := os.Getenv("ANKH_TEST_WAIT_FOR")
+	waitFor := defaultWaitFor
+	if len(waitForStr) != 0 {
+		var err error
+		waitFor, err = time.ParseDuration(waitForStr)
+		if err != nil {
+			t.Fatalf("failed to parse timeout from ANKH_TEST_WAIT_FOR: %v", err)
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		time.Sleep(waitFor)
+	}()
+	wg.Wait()
 }
 
-type webSocketServer struct {
-	address      string
-	cancel       context.CancelFunc
-	mockHandlers []ankh.WebSocketServerEventHandler
-	tlsConfig    *tls.Config
+func waitForCapture[T any](t *testing.T, captor matchers.ArgumentCaptor[T]) {
+	t.Helper()
+
+	defaultWaitForCapture := 10 * time.Millisecond
+	waitForCapturStr := os.Getenv("ANKH_TEST_WAIT_FOR_CAPTURE")
+	waitForCapture := defaultWaitForCapture
+	if len(waitForCapturStr) != 0 {
+		var err error
+		waitForCapture, err = time.ParseDuration(waitForCapturStr)
+		if err != nil {
+			t.Fatalf("failed to parse timeout from ANKH_TEST_WAIT_FOR_CAPTURE: %v", err)
+		}
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			if len(captor.Values()) != 0 {
+				return
+			}
+			time.Sleep(waitForCapture)
+		}
+	}()
+	wg.Wait()
 }
 
 func findUnusedLocalAddress(t *testing.T) string {
@@ -144,15 +179,28 @@ func findUnusedLocalAddress(t *testing.T) string {
 	return address
 }
 
+type webSocketServer struct {
+	address      string
+	cancel       context.CancelFunc
+	mockHandlers []ankh.WebSocketServerEventHandler
+	serverURL    url.URL
+	tlsConfig    *tls.Config
+}
+
 func createWebSocketServer(t *testing.T, enableTLS bool) *webSocketServer {
 	t.Helper()
 
 	address := findUnusedLocalAddress(t)
+	serverURL := url.URL{
+		Scheme: "ws",
+		Host:   address,
+	}
 	handler1 := Mock[ankh.WebSocketServerEventHandler]()
 	handler2 := Mock[ankh.WebSocketServerEventHandler]()
 
 	var tlsConfig *tls.Config
 	if enableTLS {
+		serverURL.Scheme = "wss"
 		tlsConfig = generateTestCertificate(t)
 	}
 
@@ -187,155 +235,9 @@ func createWebSocketServer(t *testing.T, enableTLS bool) *webSocketServer {
 			handler1,
 			handler2,
 		},
+		serverURL: serverURL,
 		tlsConfig: tlsConfig,
 	}
-}
-
-type webSocketClient struct {
-	conn        *websocket.Conn
-	cancel      context.CancelFunc
-	close       func()
-	pingMessage func(message string)
-	readMessage func() (messageType int, p []byte, err error)
-}
-
-func createWebSocketClient(t *testing.T, address string, path string, enableTLS bool,
-) (*webSocketClient, error) {
-	t.Helper()
-
-	webSocketDialer := &websocket.Dialer{
-		HandshakeTimeout: 5 * time.Second,
-	}
-	scheme := "ws"
-	if enableTLS {
-		scheme = "wss"
-		tlsConfig := generateTestCertificate(t)
-		tlsConfig.ServerName = "fero.example.com"
-		webSocketDialer.TLSClientConfig = tlsConfig
-	}
-
-	u := url.URL{
-		Scheme: scheme,
-		Host:   address,
-		Path:   path,
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	connChan := make(chan *websocket.Conn)
-	errChan := make(chan error)
-
-	go func() {
-		conn, _, err := webSocketDialer.DialContext(ctx, u.String(), nil)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		connChan <- conn
-	}()
-
-	select {
-	case conn := <-connChan:
-		return &webSocketClient{
-			conn:   conn,
-			cancel: cancel,
-			close: func() {
-				if err := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")); err != nil {
-					t.Fatalf("unable to close socket connection: %v", err)
-				}
-			},
-			pingMessage: func(message string) {
-				if err := conn.WriteMessage(websocket.PingMessage, []byte(message)); err != nil {
-					t.Fatalf("unable to send ping message: %v", err)
-				}
-			},
-			readMessage: func() (int, []byte, error) {
-				defaultClientReadTimeout := 1 * time.Second
-				clientReadTimeoutStr := os.Getenv("ANKH_TEST_CLIENT_READ_TIMEOUT")
-				clientReadTimeout := defaultClientReadTimeout
-				if len(clientReadTimeoutStr) != 0 {
-					var err error
-					clientReadTimeout, err = time.ParseDuration(clientReadTimeoutStr)
-					if err != nil {
-						t.Fatalf("failed to parse timeout from ANKH_TEST_WAIT_FOR: %v", err)
-					}
-				}
-				ctx, cancel := context.WithTimeout(context.Background(), clientReadTimeout)
-				defer cancel()
-
-				result := make(chan struct {
-					messageType int
-					p           []byte
-					err         error
-				})
-
-				go func() {
-					var r io.Reader
-					var messageType int
-					var err error
-
-					messageType, r, err = conn.NextReader()
-					if err != nil {
-						result <- struct {
-							messageType int
-							p           []byte
-							err         error
-						}{messageType, nil, err}
-						return
-					}
-					p, err := io.ReadAll(r)
-					result <- struct {
-						messageType int
-						p           []byte
-						err         error
-					}{messageType, p, err}
-				}()
-
-				select {
-				case res := <-result:
-					return res.messageType, res.p, res.err
-				case <-ctx.Done():
-					return 0, nil, ctx.Err()
-				}
-			},
-		}, nil
-	case err := <-errChan:
-		defer cancel()
-		return nil, fmt.Errorf("failed to connect client WebSocket: %v", err)
-	case <-ctx.Done():
-		defer cancel()
-		return nil, fmt.Errorf("context cancelled before WebSocket connection could be established")
-	}
-}
-
-func validateClientWebSocketClosed(t *testing.T, client *webSocketClient) {
-	t.Helper()
-
-	_, _, err := client.readMessage()
-	var closeErr *websocket.CloseError
-	if !errors.As(err, &closeErr) {
-		t.Fatalf("expected close error, got %v", err)
-	}
-	require.Equal(t, websocket.CloseNormalClosure, closeErr.Code)
-}
-
-func waitFor(t *testing.T) {
-	defaultWaitFor := 100 * time.Millisecond
-	waitForStr := os.Getenv("ANKH_TEST_WAIT_FOR")
-	waitFor := defaultWaitFor
-	if len(waitForStr) != 0 {
-		var err error
-		waitFor, err = time.ParseDuration(waitForStr)
-		if err != nil {
-			t.Fatalf("failed to parse timeout from ANKH_TEST_WAIT_FOR: %v", err)
-		}
-	}
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		time.Sleep(waitFor)
-	}()
-	wg.Wait()
 }
 
 func TestWebSocketServer(t *testing.T) {
@@ -405,14 +307,18 @@ func TestWebSocketServer(t *testing.T) {
 			WhenSingle(handler1.OnConnectedHandler(Exact("client-key-2"), captor2Session.Capture())).ThenReturn(nil)
 			WhenSingle(handler2.OnConnectedHandler(Exact("client-key-3"), captor3Session.Capture())).ThenReturn(nil)
 			WhenSingle(handler2.OnConnectedHandler(Exact("client-key-4"), captor4Session.Capture())).ThenReturn(nil)
-			client1, err := createWebSocketClient(t, webSocketServer.address, "/path1", tt.withTLS)
-			require.NoError(t, err)
-			client2, err := createWebSocketClient(t, webSocketServer.address, "/path1", tt.withTLS)
-			require.NoError(t, err)
-			client3, err := createWebSocketClient(t, webSocketServer.address, "/path2", tt.withTLS)
-			require.NoError(t, err)
-			client4, err := createWebSocketClient(t, webSocketServer.address, "/path2", tt.withTLS)
-			require.NoError(t, err)
+			path1ServerURL := webSocketServer.serverURL
+			path1ServerURL.Path = "/path1"
+			path2ServerURL := webSocketServer.serverURL
+			path2ServerURL.Path = "/path2"
+			client1 := createWebSocketClient(t, path1ServerURL, tt.withTLS)
+			client2 := createWebSocketClient(t, path1ServerURL, tt.withTLS)
+			client3 := createWebSocketClient(t, path2ServerURL, tt.withTLS)
+			client4 := createWebSocketClient(t, path2ServerURL, tt.withTLS)
+			runWebSocketClient(t, client1, false)
+			runWebSocketClient(t, client2, false)
+			runWebSocketClient(t, client3, false)
+			runWebSocketClient(t, client4, false)
 			defer func() {
 				client1.cancel()
 				client2.cancel()
@@ -421,10 +327,6 @@ func TestWebSocketServer(t *testing.T) {
 			}()
 
 			t.Log("verify WebSocket clients connected")
-			waitForCapture(captor1Session)
-			waitForCapture(captor2Session)
-			waitForCapture(captor3Session)
-			waitForCapture(captor4Session)
 			Verify(handler1, Times(2)).OnConnectionHandler(Any[http.ResponseWriter](), Any[*http.Request]())
 			Verify(handler2, Times(2)).OnConnectionHandler(Any[http.ResponseWriter](), Any[*http.Request]())
 			Verify(handler1, Once()).OnConnectedHandler(Exact("client-key-1"), Any[ankh.Session]())
@@ -437,23 +339,25 @@ func TestWebSocketServer(t *testing.T) {
 			t.Log("verify closing the connection of the WebSocket client will close the connection with the server")
 			// Close the WebSocket server connection and wait for client to receive the close message
 			captor2Session.Last().Close()
-			_, _, err = client2.readMessage()
-			var closeErr *websocket.CloseError
-			if !errors.As(err, &closeErr) {
-				t.Fatalf("expected close error for client2, got %v", err)
-			}
-			require.Equal(t, websocket.CloseNormalClosure, closeErr.Code)
 			waitFor(t) // wait for the close messages to be handled
 			Verify(handler1, Once()).OnDisconnectionHandler(Exact("client-key-2"))
 			VerifyNoMoreInteractions(handler1)
+			require.False(t, client2.client.IsConnected())
+
+			// This is mainly for coverage as the client application doesn't have ping
+			// event handler
+			t.Log("server can send ping messages to the client")
+			captor1Session.Last().Ping([]byte("ankh-server"))
+			captor3Session.Last().Ping([]byte("ankh-server"))
+			captor4Session.Last().Ping([]byte("ankh-server"))
 
 			t.Log("verify ping message from the client to the WebSocket server is handled")
-			When(handler1.OnPingHandler(Exact("client-key-1"), Exact("client1"))).ThenReturn([]byte("client1-pong"), nil)
-			When(handler2.OnPingHandler(Exact("client-key-3"), Exact("client3"))).ThenReturn([]byte("client3-pong"), nil)
-			When(handler2.OnPingHandler(Exact("client-key-4"), Exact("client4"))).ThenReturn([]byte("client4-pong"), nil)
-			client1.pingMessage("client1")
-			client3.pingMessage("client3")
-			client4.pingMessage("client4")
+			WhenSingle(handler1.OnPingHandler(Exact("client-key-1"), Exact("client1"))).ThenReturn([]byte("client1-pong"))
+			WhenSingle(handler2.OnPingHandler(Exact("client-key-3"), Exact("client3"))).ThenReturn([]byte("client3-pong"))
+			WhenSingle(handler2.OnPingHandler(Exact("client-key-4"), Exact("client4"))).ThenReturn([]byte("client4-pong"))
+			client1.session.Ping([]byte("client1"))
+			client3.session.Ping([]byte("client3"))
+			client4.session.Ping([]byte("client4"))
 			waitFor(t) // wait for the ping messages to be handled
 			Verify(handler1, Once()).OnPingHandler(Exact("client-key-1"), Exact("client1"))
 			Verify(handler2, Once()).OnPingHandler(Exact("client-key-3"), Exact("client3"))
@@ -462,31 +366,34 @@ func TestWebSocketServer(t *testing.T) {
 			VerifyNoMoreInteractions(handler2)
 
 			t.Log("verify message from WebSocket server to the client is sent")
-			captor1Session.Last().Send([]byte("fero-1"))
-			messageType, data, err := client1.readMessage()
-			require.NoError(t, err)
-			require.Equal(t, websocket.BinaryMessage, messageType)
-			require.Equal(t, []byte("fero-1"), data)
-			captor3Session.Last().Send([]byte("fero-3"))
-			messageType, data, err = client3.readMessage()
-			require.NoError(t, err)
-			require.Equal(t, websocket.BinaryMessage, messageType)
-			require.Equal(t, []byte("fero-3"), data)
-			captor4Session.Last().Send([]byte("fero-4"))
-			messageType, data, err = client4.readMessage()
-			require.NoError(t, err)
-			require.Equal(t, websocket.BinaryMessage, messageType)
-			require.Equal(t, []byte("fero-4"), data)
+			captor1ReadMessage := Captor[[]byte]()
+			captor3ReadMessage := Captor[[]byte]()
+			captor4ReadMessage := Captor[[]byte]()
+			captor1Session.Last().Send([]byte("ankh-1"))
+			waitFor(t) // wait for the read messages to be handled
+			Verify(client1.mockHandler, Once()).OnReadMessageHandler(Exact(websocket.BinaryMessage), captor1ReadMessage.Capture())
+			captor3Session.Last().Send([]byte("ankh-3"))
+			waitFor(t) // wait for the read messages to be handled
+			Verify(client3.mockHandler, Once()).OnReadMessageHandler(Exact(websocket.BinaryMessage), captor3ReadMessage.Capture())
+			waitFor(t) // wait for the read messages to be handled
+			captor4Session.Last().Send([]byte("ankh-4"))
+			Verify(client4.mockHandler, Once()).OnReadMessageHandler(Exact(websocket.BinaryMessage), captor4ReadMessage.Capture())
+			waitForCapture(t, captor1ReadMessage)
+			require.Equal(t, []byte("ankh-1"), captor1ReadMessage.Last())
+			waitForCapture(t, captor3ReadMessage)
+			require.Equal(t, []byte("ankh-3"), captor3ReadMessage.Last())
+			waitForCapture(t, captor4ReadMessage)
+			require.Equal(t, []byte("ankh-4"), captor4ReadMessage.Last())
 
 			t.Log("verify closing the connection of the WebSocket server will close the connection with the client")
 			webSocketServer.cancel()
-			validateClientWebSocketClosed(t, client1)
-			validateClientWebSocketClosed(t, client3)
-			validateClientWebSocketClosed(t, client4)
 			waitFor(t) // wait for the close messages to be handled
 			Verify(handler1, Once()).OnDisconnectionHandler(Exact("client-key-1"))
 			Verify(handler2, Once()).OnDisconnectionHandler(Exact("client-key-3"))
 			Verify(handler2, Once()).OnDisconnectionHandler(Exact("client-key-4"))
+			require.False(t, client1.client.IsConnected())
+			require.False(t, client3.client.IsConnected())
+			require.False(t, client4.client.IsConnected())
 		})
 
 		t.Run(fmt.Sprintf("a error occurs when starting WebSocket server with invalid address%s", tt.suffix), func(t *testing.T) {
@@ -536,10 +443,44 @@ func TestWebSocketServer(t *testing.T) {
 			defer webSocketServer.cancel()
 
 			handler := webSocketServer.mockHandlers[0]
-			When(handler.OnConnectionHandler(Any[http.ResponseWriter](), Any[*http.Request]())).ThenReturn("client-key", nil)
-			client, err := createWebSocketClient(t, webSocketServer.address, "/path1", tt.withTLS)
+			captor := Captor[*http.Request]()
+			When(handler.OnConnectionHandler(Any[http.ResponseWriter](), captor.Capture())).ThenReturn("client-key", nil)
+
+			var conn net.Conn
+			if tt.withTLS {
+				var err error
+				conn, err = tls.Dial("tcp", webSocketServer.address, webSocketServer.tlsConfig)
+				require.NoError(t, err)
+			} else {
+				var err error
+				conn, err = net.Dial("tcp", webSocketServer.address)
+				require.NoError(t, err)
+			}
+			defer conn.Close()
+
+			// Perform the WebSocket upgrade request handshake manually
+			key := make([]byte, 16)
+			_, err := rand.Read(key)
 			require.NoError(t, err)
-			client.conn.Close()
+			secWebSocketKey := base64.StdEncoding.EncodeToString(key)
+			request := "GET /path1 HTTP/1.1\r\n" +
+				"Host: %s\r\n" +
+				"Upgrade: websocket\r\n" +
+				"Connection: Upgrade\r\n" +
+				"Sec-WebSocket-Key: %s\r\n" +
+				"Sec-WebSocket-Version: 13\r\n\r\n"
+			fmt.Fprintf(conn, request, webSocketServer.address, secWebSocketKey)
+
+			// Read the response
+			var responseBuffer [4096]byte
+			n, err := conn.Read(responseBuffer[:])
+			require.NoError(t, err)
+			response := string(responseBuffer[:n])
+			require.Contains(t, response, "HTTP/1.1 101 Switching Protocols")
+
+			waitForCapture(t, captor)
+			require.NotNil(t, captor.Last())
+			conn.Close()
 			waitFor(t) // wait for handlers to be called
 
 			Verify(handler, Once()).OnConnectionHandler(Any[http.ResponseWriter](), Any[*http.Request]())
@@ -556,16 +497,21 @@ func TestWebSocketServer(t *testing.T) {
 			defer webSocketServer.cancel()
 
 			handler := webSocketServer.mockHandlers[0]
-			When(handler.OnConnectionHandler(Any[http.ResponseWriter](), Any[*http.Request]())).ThenReturn("", errors.New("connection denied"))
-			_, err := createWebSocketClient(t, webSocketServer.address, "/path1", tt.withTLS)
-			require.Error(t, err)
-			waitFor(t) // wait for OnConnectionHandler to be called
+			captor := Captor[*http.Request]()
+			When(handler.OnConnectionHandler(Any[http.ResponseWriter](), captor.Capture())).ThenReturn("", errors.New("connection denied"))
+			serverURL := webSocketServer.serverURL
+			serverURL.Path = "/path1"
+			client := createWebSocketClient(t, serverURL, tt.withTLS)
+			runWebSocketClient(t, client, true)
+			require.NotEmpty(t, client)
+			waitForCapture(t, captor)
+			require.NotNil(t, captor.Last())
 
 			Verify(handler, Once()).OnConnectionHandler(Any[http.ResponseWriter](), Any[*http.Request]())
 			VerifyNoMoreInteractions(handler)
 		})
 
-		t.Run(fmt.Sprintf("server connection handles WebSocket upgrade%s", tt.suffix), func(t *testing.T) {
+		t.Run(fmt.Sprintf("server connection handles WebSocket upgrade error%s", tt.suffix), func(t *testing.T) {
 			t.Parallel()
 			SetUp(t)
 			webSocketServer := createWebSocketServer(t, tt.withTLS)
@@ -577,21 +523,20 @@ func TestWebSocketServer(t *testing.T) {
 				var err error
 				conn, err = tls.Dial("tcp", webSocketServer.address, webSocketServer.tlsConfig)
 				require.NoError(t, err)
-				defer conn.Close()
 			} else {
 				var err error
 				conn, err = net.Dial("tcp", webSocketServer.address)
 				require.NoError(t, err)
-				defer conn.Close()
 			}
+			defer conn.Close()
 
 			// Perform a WebSocket handshake manually which uses a missing key and version
-			fmt.Fprint(conn, "GET /path1 HTTP/1.1\r\n")
-			fmt.Fprintf(conn, "Host: %s\r\n", webSocketServer.address)
-			fmt.Fprintf(conn, "Upgrade: websocket\r\n")
-			fmt.Fprintf(conn, "Connection: Upgrade\r\n")
-			fmt.Fprintf(conn, "\r\n")
-			waitFor(t) // wait for the upgrade to be handled
+			request := "GET /path1 HTTP/1.1\r\n" +
+				"Host: %s\r\n" +
+				"Upgrade: websocket\r\n" +
+				"Connection: Upgrade\r\n\r\n"
+			fmt.Fprintf(conn, request, webSocketServer.address)
+			waitFor(t) // wait for handlers to be called
 
 			Verify(handler, Once()).OnConnectionHandler(Any[http.ResponseWriter](), Any[*http.Request]())
 			Verify(handler, Once()).OnWebSocketUpgraderErrorHandler(Any[any](), Any[error]())
