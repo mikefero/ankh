@@ -18,6 +18,11 @@ package ankh
 // and is guaranteed to be thread safe.
 type CloseConnection func()
 
+// PingMessage will send a ping message to the client/server application. This handle
+// will be given during the OnConnectedHandler callback and is guaranteed to be
+// thread safe.
+type PingMessage func(data []byte) error
+
 // SendMessage will send a binary message to the client/server application. This
 // handle will be given during the OnConnectedHandler callback and is guaranteed
 // to be thread safe.
@@ -27,6 +32,8 @@ type SendMessage func(data []byte) error
 type Session struct {
 	// Close will close the connection with the client/server application.
 	Close CloseConnection
+	// Ping will send a ping message to the client/server application.
+	Ping PingMessage
 	// Send will send a binary message to the client/server application.
 	Send SendMessage
 }

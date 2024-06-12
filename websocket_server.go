@@ -54,11 +54,11 @@ type WebSocketServerEventHandler interface {
 	// OnPingHandler is a function callback for WebSocket connections during ping
 	// operations. The byte array returned will be sent back to the client as a
 	// pong message.
-	OnPingHandler(clientKey any, appData string) ([]byte, error)
+	OnPingHandler(clientKey any, appData string) []byte
 
 	// OnReadMessageHandler is a function callback for WebSocket connection that
 	// is executed upon a message received from the WebSocket.
-	OnReadMessageHandler(clientKey any, messageType int, data []byte) error
+	OnReadMessageHandler(clientKey any, messageType int, data []byte)
 
 	// OnReadMessageErrorHandler is a function callback for WebSocket connection
 	// read error received from the WebSocket.
@@ -108,8 +108,8 @@ type WebSocketServer struct {
 	shutdownTimeout time.Duration
 }
 
-// NewWebSocketServer creates a new WebSocketServer instance. All options are
-// validated and required to be set.
+// NewWebSocketServer creates a new WebSocketServer instance. Options are
+// validated and will return an error if any are invalid.
 func NewWebSocketServer(opts WebSocketServerOpts) (*WebSocketServer, error) {
 	// Validate all WebSocketServer options
 	address := strings.TrimSpace(opts.Address)
@@ -192,7 +192,9 @@ func (s *WebSocketServer) Run(ctx context.Context) error {
 }
 
 // closeConnection will close the connection with the client application.
-func closeConnection(conn *websocket.Conn, mutex *sync.Mutex, clientKey any, handler WebSocketServerEventHandler) {
+func (s *WebSocketServer) closeConnection(conn *websocket.Conn, mutex *sync.Mutex, clientKey any,
+	handler WebSocketServerEventHandler,
+) {
 	// Ensure closed message is not sent when connection is already closed
 	err := writeMessage(conn, mutex, websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
@@ -234,21 +236,22 @@ func (s *WebSocketServer) handleConnection(ctx context.Context, w http.ResponseW
 		return
 	}
 	defer conn.Close()
-	defer closeConnection(conn, &mutex, clientKey, handler)
+	defer s.closeConnection(conn, &mutex, clientKey, handler)
 	defer handler.OnDisconnectionHandler(clientKey)
 
 	conn.SetPingHandler(func(appData string) error {
-		data, err := handler.OnPingHandler(clientKey, appData)
-		if err != nil {
-			return fmt.Errorf("unable to handle ping: %w", err)
-		}
+		data := handler.OnPingHandler(clientKey, appData)
 		return writeMessage(conn, &mutex, websocket.PongMessage, data)
 	})
 
 	if err := handler.OnConnectedHandler(clientKey, Session{
 		// Generate a close function for the session
 		Close: func() {
-			closeConnection(conn, &mutex, clientKey, handler)
+			s.closeConnection(conn, &mutex, clientKey, handler)
+		},
+		// Generate a ping function for the session
+		Ping: func(data []byte) error {
+			return writeMessage(conn, &mutex, websocket.PingMessage, data)
 		},
 		// Generate a send message function for the session
 		Send: func(data []byte) error {
@@ -293,7 +296,7 @@ func (s *WebSocketServer) handleConnection(ctx context.Context, w http.ResponseW
 					}
 					continue
 				}
-				_ = handler.OnReadMessageHandler(clientKey, messageType, data)
+				handler.OnReadMessageHandler(clientKey, messageType, data)
 			}
 		}
 	}()
