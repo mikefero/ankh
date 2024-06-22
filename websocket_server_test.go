@@ -299,10 +299,10 @@ func TestWebSocketServer(t *testing.T) {
 			When(handler2.OnConnectionHandler(Any[http.ResponseWriter](), Any[*http.Request]())).
 				ThenReturn("client-key-3", nil).
 				ThenReturn("client-key-4", nil)
-			captor1Session := Captor[ankh.Session]()
-			captor2Session := Captor[ankh.Session]()
-			captor3Session := Captor[ankh.Session]()
-			captor4Session := Captor[ankh.Session]()
+			captor1Session := Captor[*ankh.Session]()
+			captor2Session := Captor[*ankh.Session]()
+			captor3Session := Captor[*ankh.Session]()
+			captor4Session := Captor[*ankh.Session]()
 			WhenSingle(handler1.OnConnectedHandler(Exact("client-key-1"), captor1Session.Capture())).ThenReturn(nil)
 			WhenSingle(handler1.OnConnectedHandler(Exact("client-key-2"), captor2Session.Capture())).ThenReturn(nil)
 			WhenSingle(handler2.OnConnectedHandler(Exact("client-key-3"), captor3Session.Capture())).ThenReturn(nil)
@@ -329,10 +329,10 @@ func TestWebSocketServer(t *testing.T) {
 			t.Log("verify WebSocket clients connected")
 			Verify(handler1, Times(2)).OnConnectionHandler(Any[http.ResponseWriter](), Any[*http.Request]())
 			Verify(handler2, Times(2)).OnConnectionHandler(Any[http.ResponseWriter](), Any[*http.Request]())
-			Verify(handler1, Once()).OnConnectedHandler(Exact("client-key-1"), Any[ankh.Session]())
-			Verify(handler1, Once()).OnConnectedHandler(Exact("client-key-2"), Any[ankh.Session]())
-			Verify(handler2, Once()).OnConnectedHandler(Exact("client-key-3"), Any[ankh.Session]())
-			Verify(handler2, Once()).OnConnectedHandler(Exact("client-key-4"), Any[ankh.Session]())
+			Verify(handler1, Once()).OnConnectedHandler(Exact("client-key-1"), Any[*ankh.Session]())
+			Verify(handler1, Once()).OnConnectedHandler(Exact("client-key-2"), Any[*ankh.Session]())
+			Verify(handler2, Once()).OnConnectedHandler(Exact("client-key-3"), Any[*ankh.Session]())
+			Verify(handler2, Once()).OnConnectedHandler(Exact("client-key-4"), Any[*ankh.Session]())
 			VerifyNoMoreInteractions(handler1)
 			VerifyNoMoreInteractions(handler2)
 
@@ -484,7 +484,7 @@ func TestWebSocketServer(t *testing.T) {
 			waitFor(t) // wait for handlers to be called
 
 			Verify(handler, Once()).OnConnectionHandler(Any[http.ResponseWriter](), Any[*http.Request]())
-			Verify(handler, Once()).OnConnectedHandler(Exact("client-key"), Any[ankh.Session]())
+			Verify(handler, Once()).OnConnectedHandler(Exact("client-key"), Any[*ankh.Session]())
 			Verify(handler, Once()).OnDisconnectionHandler(Exact("client-key"))
 			Verify(handler, Once()).OnReadMessageErrorHandler(Exact("client-key"), Any[error]()) // connection closed improperly
 			VerifyNoMoreInteractions(handler)

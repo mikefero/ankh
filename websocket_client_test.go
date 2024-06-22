@@ -33,7 +33,7 @@ type webSocketClient struct {
 	cancel      context.CancelFunc
 	client      *ankh.WebSocketClient
 	mockHandler ankh.WebSocketClientEventHandler
-	session     ankh.Session
+	session     *ankh.Session
 }
 
 func createWebSocketClient(t *testing.T, serverURL url.URL, enableTLS bool) *webSocketClient {
@@ -77,14 +77,14 @@ func runWebSocketClient(t *testing.T, client *webSocketClient, shouldFail bool) 
 		}
 	}()
 
-	client.session = ankh.Session{}
+	client.session = &ankh.Session{}
 	if !shouldFail {
 		t.Log("verify WebSocket client connects")
-		captorSession := Captor[ankh.Session]()
+		captorSession := Captor[*ankh.Session]()
 		WhenSingle(client.mockHandler.OnConnectedHandler(Any[*http.Response](), captorSession.Capture())).ThenReturn(nil)
 		waitForCapture(t, captorSession)
 		client.session = captorSession.Last()
-		Verify(client.mockHandler, Once()).OnConnectedHandler(Any[*http.Response](), Any[ankh.Session]())
+		Verify(client.mockHandler, Once()).OnConnectedHandler(Any[*http.Response](), Any[*ankh.Session]())
 	}
 }
 
@@ -116,7 +116,7 @@ func TestWebSocketClient(t *testing.T) {
 			t.Log("creating WebSocket server")
 			server := createWebSocketServer(t, tt.withTLS)
 			serverHandler := server.mockHandlers[0]
-			captorServerSession := Captor[ankh.Session]()
+			captorServerSession := Captor[*ankh.Session]()
 			When(serverHandler.OnConnectionHandler(Any[http.ResponseWriter](), Any[*http.Request]())).ThenReturn("client-key", nil)
 			WhenSingle(serverHandler.OnConnectedHandler(Exact("client-key"), captorServerSession.Capture())).ThenReturn(nil)
 			defer server.cancel()
@@ -133,7 +133,7 @@ func TestWebSocketClient(t *testing.T) {
 			waitForCapture(t, captorServerSession)
 			serverSession := captorServerSession.Last()
 			Verify(serverHandler, Once()).OnConnectionHandler(Any[http.ResponseWriter](), Any[*http.Request]())
-			Verify(serverHandler, Once()).OnConnectedHandler(Exact("client-key"), Any[ankh.Session]())
+			Verify(serverHandler, Once()).OnConnectedHandler(Exact("client-key"), Any[*ankh.Session]())
 
 			t.Log("verify ping message is received from the server and client receives pong message")
 			captorPing := Captor[string]()
@@ -156,6 +156,7 @@ func TestWebSocketClient(t *testing.T) {
 			t.Log("verify message from the server to the client is received")
 			captorClientReadMessage := Captor[[]byte]()
 			serverSession.Send([]byte("ankh-server"))
+			waitFor(t) // wait for the read messages to be handled
 			Verify(handler, Once()).OnReadMessageHandler(Exact(websocket.BinaryMessage), captorClientReadMessage.Capture())
 			waitForCapture(t, captorClientReadMessage)
 			require.Equal(t, []byte("ankh-server"), captorClientReadMessage.Last())
@@ -181,12 +182,12 @@ func TestWebSocketClient(t *testing.T) {
 			serverURL.Path = "/path1"
 			client := createWebSocketClient(t, serverURL, tt.withTLS)
 			handler := client.mockHandler
-			WhenSingle(handler.OnConnectedHandler(Any[*http.Response](), Any[ankh.Session]())).ThenReturn(errors.New("connection error"))
+			WhenSingle(handler.OnConnectedHandler(Any[*http.Response](), Any[*ankh.Session]())).ThenReturn(errors.New("connection error"))
 			runWebSocketClient(t, client, true)
 			defer client.cancel()
 
 			waitFor(t) // wait connected handler to be called
-			Verify(handler, Once()).OnConnectedHandler(Any[*http.Response](), Any[ankh.Session]())
+			Verify(handler, Once()).OnConnectedHandler(Any[*http.Response](), Any[*ankh.Session]())
 			Verify(handler, Once()).OnDisconnectionHandler()
 			VerifyNoMoreInteractions(handler)
 		})
@@ -197,14 +198,14 @@ func TestWebSocketClient(t *testing.T) {
 
 			server := createWebSocketServer(t, tt.withTLS)
 			serverHandler := server.mockHandlers[0]
-			captorServerSession := Captor[ankh.Session]()
+			captorServerSession := Captor[*ankh.Session]()
 			When(serverHandler.OnConnectionHandler(Any[http.ResponseWriter](), Any[*http.Request]())).ThenReturn("client-key", nil)
 			When(serverHandler.OnConnectedHandler(Exact("client-key"), captorServerSession.Capture())).ThenReturn(nil)
 			serverURL := server.serverURL
 			serverURL.Path = "/path1"
 			client := createWebSocketClient(t, serverURL, tt.withTLS)
 			handler := client.mockHandler
-			WhenSingle(handler.OnConnectedHandler(Any[*http.Response](), Any[ankh.Session]())).ThenReturn(errors.New("connection error"))
+			WhenSingle(handler.OnConnectedHandler(Any[*http.Response](), Any[*ankh.Session]())).ThenReturn(errors.New("connection error"))
 			runWebSocketClient(t, client, true)
 			defer client.cancel()
 
@@ -212,7 +213,7 @@ func TestWebSocketClient(t *testing.T) {
 			serverSession := captorServerSession.Last()
 			serverSession.Close()
 			waitFor(t) // wait connected handler to be called
-			Verify(handler, Once()).OnConnectedHandler(Any[*http.Response](), Any[ankh.Session]())
+			Verify(handler, Once()).OnConnectedHandler(Any[*http.Response](), Any[*ankh.Session]())
 			Verify(handler, Once()).OnDisconnectionHandler()
 			VerifyNoMoreInteractions(handler)
 		})

@@ -41,7 +41,7 @@ type WebSocketServerEventHandler interface {
 	// OnConnectedHandler is a function callback for indicating that the client
 	// connection is completed while creating handles for closing connections and
 	// sending messages on the WebSocket.
-	OnConnectedHandler(clientKey any, session Session) error
+	OnConnectedHandler(clientKey any, session *Session) error
 
 	// OnDisconnectionHandler is a function callback for WebSocket connections
 	// that is executed upon disconnection of a client.
@@ -244,7 +244,7 @@ func (s *WebSocketServer) handleConnection(ctx context.Context, w http.ResponseW
 		return writeMessage(conn, &mutex, websocket.PongMessage, data)
 	})
 
-	if err := handler.OnConnectedHandler(clientKey, Session{
+	if err := handler.OnConnectedHandler(clientKey, &Session{
 		// Generate a close function for the session
 		Close: func() {
 			s.closeConnection(conn, &mutex, clientKey, handler)
