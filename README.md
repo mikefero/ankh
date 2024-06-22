@@ -42,7 +42,7 @@ events:
 ```go
 type MyWebSocketClientHandler struct{}
 
-func (h *MyWebSocketClientHandler) OnConnectedHandler(resp *http.Response, session ankh.Session) error {
+func (h *MyWebSocketClientHandler) OnConnectedHandler(resp *http.Response, session *ankh.Session) error {
     // Handle post-connection setup
     fmt.Println("connected to server")
     return nil
@@ -130,7 +130,7 @@ import (
 
 type MyWebSocketClientHandler struct{}
 
-func (h *MyWebSocketClientHandler) OnConnectedHandler(resp *http.Response, session ankh.Session) error {
+func (h *MyWebSocketClientHandler) OnConnectedHandler(resp *http.Response, session *ankh.Session) error {
     fmt.Println("connected to server")
     return nil
 }
@@ -189,7 +189,7 @@ events:
 
 ```go
 type MyWebSocketServerHandler struct{
-	sessions map[any]ankh.Session
+	sessions map[any]*ankh.Session
 	mutex    sync.Mutex
 }
 
@@ -302,7 +302,7 @@ import (
 )
 
 type MyWebSocketServerHandler struct{
-	sessions map[any]ankh.Session
+	sessions map[any]*ankh.Session
 	mutex    sync.Mutex
 }
 
@@ -310,7 +310,7 @@ func (h *MyWebSocketServerHandler) OnConnectionHandler(w http.ResponseWriter, r 
 	return "clientKey", nil
 }
 
-func (h *MyWebSocketServerHandler) OnConnectedHandler(clientKey any, session ankh.Session) error {
+func (h *MyWebSocketServerHandler) OnConnectedHandler(clientKey any, session *ankh.Session) error {
 	log.Printf("client connected: %v", clientKey)
 
 	// Send a welcome message
