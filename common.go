@@ -13,6 +13,8 @@
 // limitations under the License.
 package ankh
 
+import "crypto/tls"
+
 // CloseConnection will terminate the connection with the client/server
 // application. This handle will be given during the OnConnectedHandler callback
 // and is guaranteed to be thread safe.
@@ -36,4 +38,6 @@ type Session struct {
 	Ping PingMessage
 	// Send will send a binary message to the client/server application.
 	Send SendMessage
+	// ConnectionState contains the TLS connection state.
+	ConnectionState *tls.ConnectionState
 }

@@ -121,6 +121,15 @@ func (c *WebSocketClient) Run(ctx context.Context) error {
 	defer c.closeConnection(conn)
 	defer c.handler.OnDisconnectionHandler()
 
+	// Get the TLS connection state
+	var connectionState tls.ConnectionState
+	if nConn := conn.NetConn(); nConn != nil {
+		tlsConn, ok := nConn.(*tls.Conn)
+		if ok {
+			connectionState = tlsConn.ConnectionState()
+		}
+	}
+
 	if err := c.handler.OnConnectedHandler(resp, &Session{
 		// Generate a close function for the session
 		Close: func() {
@@ -134,6 +143,7 @@ func (c *WebSocketClient) Run(ctx context.Context) error {
 		Send: func(data []byte) error {
 			return writeMessage(conn, &c.mutex, websocket.BinaryMessage, data)
 		},
+		ConnectionState: &connectionState,
 	}); err != nil {
 		// Unable to handle connection
 		return fmt.Errorf("unable to handle connection: %w", err)

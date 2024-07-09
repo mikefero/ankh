@@ -132,6 +132,10 @@ func TestWebSocketClient(t *testing.T) {
 			t.Log("obtain server session for further client testing")
 			waitForCapture(t, captorServerSession)
 			serverSession := captorServerSession.Last()
+			if tt.withTLS {
+				require.NotNil(t, serverSession.ConnectionState)
+				require.Equal(t, (uint16(tls.VersionTLS13)), serverSession.ConnectionState.Version)
+			}
 			Verify(serverHandler, Once()).OnConnectionHandler(Any[http.ResponseWriter](), Any[*http.Request]())
 			Verify(serverHandler, Once()).OnConnectedHandler(Exact("client-key"), Any[*ankh.Session]())
 
