@@ -239,6 +239,15 @@ func (s *WebSocketServer) handleConnection(ctx context.Context, w http.ResponseW
 	defer s.closeConnection(conn, &mutex, clientKey, handler)
 	defer handler.OnDisconnectionHandler(clientKey)
 
+	// Get the TLS connection state
+	var connectionState tls.ConnectionState
+	if nConn := conn.NetConn(); nConn != nil {
+		tlsConn, ok := nConn.(*tls.Conn)
+		if ok {
+			connectionState = tlsConn.ConnectionState()
+		}
+	}
+
 	conn.SetPingHandler(func(appData string) error {
 		data := handler.OnPingHandler(clientKey, appData)
 		return writeMessage(conn, &mutex, websocket.PongMessage, data)
@@ -257,6 +266,7 @@ func (s *WebSocketServer) handleConnection(ctx context.Context, w http.ResponseW
 		Send: func(data []byte) error {
 			return writeMessage(conn, &mutex, websocket.BinaryMessage, data)
 		},
+		ConnectionState: &connectionState,
 	}); err != nil {
 		// Unable to handle connection
 		return

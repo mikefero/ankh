@@ -325,6 +325,17 @@ func TestWebSocketServer(t *testing.T) {
 				client3.cancel()
 				client4.cancel()
 			}()
+			if tt.withTLS {
+				tlsV13 := (uint16(tls.VersionTLS13))
+				require.NotNil(t, captor1Session.Last().ConnectionState)
+				require.Equal(t, tlsV13, captor1Session.Last().ConnectionState.Version)
+				require.NotNil(t, captor2Session.Last().ConnectionState)
+				require.Equal(t, tlsV13, captor2Session.Last().ConnectionState.Version)
+				require.NotNil(t, captor3Session.Last().ConnectionState)
+				require.Equal(t, tlsV13, captor3Session.Last().ConnectionState.Version)
+				require.NotNil(t, captor4Session.Last().ConnectionState)
+				require.Equal(t, tlsV13, captor4Session.Last().ConnectionState.Version)
+			}
 
 			t.Log("verify WebSocket clients connected")
 			Verify(handler1, Times(2)).OnConnectionHandler(Any[http.ResponseWriter](), Any[*http.Request]())
