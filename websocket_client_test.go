@@ -47,7 +47,10 @@ func createWebSocketClient(t *testing.T, serverURL url.URL, enableTLS bool) *web
 
 	handler := Mock[ankh.WebSocketClientEventHandler]()
 	client, err := ankh.NewWebSocketClient(ankh.WebSocketClientOpts{
-		ServerURL:        serverURL,
+		ServerURL: serverURL,
+		RequestHeaders: map[string][]string{
+			"X-Custom-Header": {"custom-value"},
+		},
 		Handler:          handler,
 		HandShakeTimeout: 5 * time.Second,
 		TLSConfig:        tlsConfig,
@@ -117,7 +120,8 @@ func TestWebSocketClient(t *testing.T) {
 			server := createWebSocketServer(t, tt.withTLS)
 			serverHandler := server.mockHandlers[0]
 			captorServerSession := Captor[*ankh.Session]()
-			When(serverHandler.OnConnectionHandler(Any[http.ResponseWriter](), Any[*http.Request]())).ThenReturn("client-key", nil)
+			captorServerRequest := Captor[*http.Request]()
+			When(serverHandler.OnConnectionHandler(Any[http.ResponseWriter](), captorServerRequest.Capture())).ThenReturn("client-key", nil)
 			WhenSingle(serverHandler.OnConnectedHandler(Exact("client-key"), captorServerSession.Capture())).ThenReturn(nil)
 			defer server.cancel()
 
@@ -128,6 +132,10 @@ func TestWebSocketClient(t *testing.T) {
 			runWebSocketClient(t, client, false)
 			handler := client.mockHandler
 			defer client.cancel()
+
+			t.Log("verify client connection request headers are sent to the server")
+			waitForCapture(t, captorServerRequest)
+			require.Equal(t, "custom-value", captorServerRequest.Last().Header.Get("X-Custom-Header"))
 
 			t.Log("obtain server session for further client testing")
 			waitForCapture(t, captorServerSession)

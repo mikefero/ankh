@@ -137,7 +137,7 @@ func waitFor(t *testing.T) {
 func waitForCapture[T any](t *testing.T, captor matchers.ArgumentCaptor[T]) {
 	t.Helper()
 
-	defaultWaitForCapture := 10 * time.Millisecond
+	defaultWaitForCapture := 100 * time.Millisecond
 	waitForCapturStr := os.Getenv("ANKH_TEST_WAIT_FOR_CAPTURE")
 	waitForCapture := defaultWaitForCapture
 	if len(waitForCapturStr) != 0 {

@@ -67,6 +67,9 @@ type WebSocketClientOpts struct {
 	// HandShakeTimeout specifies the amount of time allowed to complete the
 	// WebSocket handshake.
 	HandShakeTimeout time.Duration
+	// RequestHeaders specifies the headers to be sent with the WebSocket
+	// handshake.
+	RequestHeaders map[string][]string
 	// ServerURL specifies the WebSocket server URL.
 	ServerURL url.URL
 	// TLSConfig specifies the TLS configuration for the WebSocketClient.
@@ -75,8 +78,9 @@ type WebSocketClientOpts struct {
 
 // WebSocketClient is the client instance for a WebSocket.
 type WebSocketClient struct {
-	handler   WebSocketClientEventHandler
-	serverURL url.URL
+	handler        WebSocketClientEventHandler
+	requestHeaders http.Header
+	serverURL      url.URL
 
 	dialer      websocket.Dialer
 	isConnected bool
@@ -101,8 +105,9 @@ func NewWebSocketClient(opts WebSocketClientOpts) (*WebSocketClient, error) {
 	}
 
 	return &WebSocketClient{
-		serverURL: opts.ServerURL,
-		handler:   opts.Handler,
+		serverURL:      opts.ServerURL,
+		handler:        opts.Handler,
+		requestHeaders: opts.RequestHeaders,
 
 		dialer:      dialer,
 		isConnected: false,
@@ -110,7 +115,7 @@ func NewWebSocketClient(opts WebSocketClientOpts) (*WebSocketClient, error) {
 }
 
 func (c *WebSocketClient) Run(ctx context.Context) error {
-	conn, resp, err := c.dialer.Dial(c.serverURL.String(), nil)
+	conn, resp, err := c.dialer.Dial(c.serverURL.String(), c.requestHeaders)
 	if err != nil {
 		if resp != nil {
 			return fmt.Errorf("unable to connect to server URL at %s (%s): %w", c.serverURL.String(), resp.Status, err)
